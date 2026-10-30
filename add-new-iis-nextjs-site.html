@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Adding a New IIS + Next.js Site</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #182230;
+      --muted: #526174;
+      --line: #d8e0e9;
+      --panel: #f4f7fb;
+      --accent: #155eef;
+      --warn-bg: #fff7e6;
+      --warn-border: #f0b429;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #edf1f6;
+      color: var(--ink);
+      font: 16px/1.6 "Segoe UI", Arial, sans-serif;
+    }
+    main {
+      max-width: 960px;
+      margin: 32px auto;
+      padding: 44px 52px;
+      background: #fff;
+      box-shadow: 0 8px 32px #18223014;
+      border-radius: 12px;
+    }
+    h1 { font-size: 2rem; line-height: 1.2; margin: 0 0 8px; }
+    h2 {
+      font-size: 1.35rem;
+      margin: 34px 0 10px;
+      padding-bottom: 7px;
+      border-bottom: 1px solid var(--line);
+    }
+    p, li { color: #273548; }
+    .intro { color: var(--muted); margin-top: 0; }
+    .step { color: var(--accent); font-weight: 700; }
+    code {
+      font-family: Consolas, "Courier New", monospace;
+      font-size: .92em;
+      overflow-wrap: anywhere;
+    }
+    pre {
+      position: relative;
+      overflow-x: auto;
+      padding: 16px 18px;
+      background: #111827;
+      color: #f3f4f6;
+      border-radius: 8px;
+      line-height: 1.5;
+      white-space: pre;
+    }
+    pre code { font-size: 13px; }
+    .path {
+      display: block;
+      padding: 12px 15px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--panel);
+      overflow-wrap: anywhere;
+    }
+    .note {
+      padding: 14px 16px;
+      margin: 16px 0;
+      background: var(--warn-bg);
+      border-left: 4px solid var(--warn-border);
+      border-radius: 4px;
+    }
+    .checklist li { margin: 6px 0; }
+    footer {
+      margin-top: 36px;
+      padding-top: 14px;
+      border-top: 1px solid var(--line);
+      font-size: .9rem;
+      color: var(--muted);
+    }
+    @media (max-width: 700px) {
+      main { margin: 0; padding: 26px 20px; border-radius: 0; }
+      h1 { font-size: 1.65rem; }
+    }
+    @media print {
+      body { background: #fff; }
+      main { max-width: none; margin: 0; padding: 0; box-shadow: none; }
+      pre { white-space: pre-wrap; overflow-wrap: anywhere; print-color-adjust: exact; }
+      h2, pre, .note { break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Adding a New IIS + Next.js Site</h1>
+  <p class="intro">Deployment guide for hosting a Next.js standalone application behind IIS URL Rewrite and PM2 on Windows Server.</p>
+
+  <h2><span class="step">1.</span> Create the Proxy Directory</h2>
+  <p>Create a directory for the site under:</p>
+  <code class="path">C:\inetpub\ignet\site-proxy\&lt;site-name&gt;</code>
+  <ol>
+    <li>Copy the existing working <code>web.config</code> into the new directory.</li>
+    <li>Edit the copied file so the hostname matches the new site and the reverse-proxy target uses that application's Node.js port.</li>
+    <li>Keep the existing rewrite and proxy settings unless the new site specifically needs a change.</li>
+  </ol>
+  <div class="note"><strong>Important:</strong> Use a unique local Node.js port for every application. The IIS proxy target, launcher port, and application configuration must agree.</div>
+
+  <h2><span class="step">2.</span> Configure IIS</h2>
+  <ol>
+    <li>Open IIS Manager and choose <strong>Sites → Add Website…</strong>.</li>
+    <li>Set the site name to <code>&lt;site-name&gt;</code>.</li>
+    <li>Set the physical path to <code>C:\inetpub\ignet\site-proxy\&lt;site-name&gt;</code>.</li>
+    <li>Add an HTTP binding for the hostname on port <code>80</code>.</li>
+    <li>Add an HTTPS binding for the hostname on port <code>443</code>, and select the wildcard SSL certificate. Enable SNI if required by the server's existing binding setup.</li>
+  </ol>
+
+  <h3>Allow the forwarded-host server variable</h3>
+  <p>IIS URL Rewrite must be allowed to set <code>HTTP_X_FORWARDED_HOST</code> before the site's rewrite rule can assign it.</p>
+  <ol>
+    <li>In IIS Manager, select the <strong>server</strong> node (the top-level machine, not just the new website).</li>
+    <li>Open <strong>URL Rewrite</strong>.</li>
+    <li>Choose <strong>View Server Variables…</strong> in the Actions pane.</li>
+    <li>Choose <strong>Add…</strong>, enter <code>HTTP_X_FORWARDED_HOST</code>, then confirm.</li>
+    <li>Open the new site's <code>web.config</code> and ensure the reverse-proxy rule sets the forwarded-host header. Keep the rule syntax consistent with the existing working configuration.</li>
+  </ol>
+  <pre><code>&lt;serverVariables&gt;
+  &lt;set name="HTTP_X_FORWARDED_HOST" value="{HTTP_HOST}" /&gt;
+&lt;/serverVariables&gt;</code></pre>
+  <p>The snippet above belongs inside the relevant URL Rewrite rule's action configuration; do not paste it as a standalone top-level section. If the existing configuration already has a <code>&lt;serverVariables&gt;</code> section, add the setting there rather than creating a duplicate.</p>
+
+  <h2><span class="step">3.</span> Build the Next.js App</h2>
+  <p>Run these commands in Bash from the application's project directory:</p>
+  <pre><code>npm run build
+
+mkdir -p .next/standalone/.next
+cp -r .next/static .next/standalone/.next/
+cp -r public .next/standalone/</code></pre>
+  <p>If the project has no <code>public</code> directory, skip the final copy command. These commands assume the Next.js project uses <code>output: "standalone"</code> in its configuration.</p>
+
+  <h2><span class="step">4.</span> Create the Launcher</h2>
+  <p>Create <code>server-start.cjs</code> in the project root, alongside the <code>.next</code> directory:</p>
+  <pre><code>process.env.NODE_ENV = "production";
+process.env.PORT = "3050";
+process.env.HOSTNAME = "127.0.0.1";
+
+require("./.next/standalone/server.js");</code></pre>
+  <p>Change <code>3050</code> to the unique port assigned to this application. Make sure the IIS reverse-proxy target uses the same port.</p>
+
+  <h2><span class="step">5.</span> Start the Site with PM2</h2>
+  <p>From the project directory, run:</p>
+  <pre><code>pm2 start ./server-start.cjs --name "&lt;site-name&gt;"
+pm2 save</code></pre>
+  <p>Use a consistent PM2 process name, such as the hostname or site name, so deployments can restart the correct process.</p>
+
+  <h2><span class="step">6.</span> Deploy Subsequent Updates</h2>
+  <p>After pulling or applying code changes, run these commands from the same project directory:</p>
+  <pre><code>npm run build
+
+mkdir -p .next/standalone/.next
+cp -r .next/static .next/standalone/.next/
+cp -r public .next/standalone/
+
+pm2 restart "&lt;site-name&gt;"</code></pre>
+  <p>If there is no <code>public</code> directory, omit its copy command. If the build changes dependencies, install the required production dependencies before restarting.</p>
+
+  <h2>Final Verification</h2>
+  <ul class="checklist">
+    <li>☐ The IIS site's physical path points to the correct proxy directory.</li>
+    <li>☐ HTTP and HTTPS bindings use the intended hostname.</li>
+    <li>☐ The wildcard certificate is selected for HTTPS.</li>
+    <li>☐ <code>HTTP_X_FORWARDED_HOST</code> is registered under IIS URL Rewrite → View Server Variables.</li>
+    <li>☐ The proxy rule forwards requests to the correct Node.js port and passes the forwarded-host variable.</li>
+    <li>☐ The PM2 process is online and the application responds on <code>127.0.0.1:&lt;port&gt;</code>.</li>
+    <li>☐ The public hostname works over HTTPS and static assets load.</li>
+  </ul>
+
+  <footer>Keep a known-good copy of the existing <code>web.config</code> before editing it. Use the current working proxy configuration as the baseline for every new site.</footer>
+</main>
+</body>
+</html>
